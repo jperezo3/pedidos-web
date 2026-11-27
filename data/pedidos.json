@@ -1,9 +1,0 @@
-{
-  "version_id": "ejemplo-v1",
-  "ultima_actualizacion": "2026-11-26T12:00:00Z",
-  "pedidos": [
-    { "id": "P001", "cliente": "Ana Gómez", "producto": "Teclado", "cantidad": 1, "estado": "enviado" },
-    { "id": "P002", "cliente": "Luis Pérez", "producto": "Monitor", "cantidad": 2, "estado": "pendiente" },
-    { "id": "P003", "cliente": "Marta Ruiz", "producto": "Mouse", "cantidad": 3, "estado": "entregado" }
-  ]
-}

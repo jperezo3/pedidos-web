@@ -1,11 +1,14 @@
-# Consulta de Pedidos (Next.js)
+# Pedidos (Next.js)
+
+Front de la API de Pedidos (Flask + PostgreSQL).
 
 ## Local
     npm install
+    # crea .env.local con:  API_URL=http://localhost:8000
     npm run dev        # http://localhost:3000
 
-Para usar API local crea `.env.local` con:
+`API_URL` es obligatoria (en Vercel: Settings > Environment Variables, y luego Redeploy).
 
-    API_URL=http://localhost:8000
-
-Sin `API_URL` se usan los datos de `data/pedidos.json`.
+Crear, editar, eliminar y cargar piden usuario y contraseña (los de
+API_AUTH_CREDENTIALS del back). No se guardan: se pierden al recargar.
+Usa HTTPS en la API antes de enviar credenciales reales por internet.

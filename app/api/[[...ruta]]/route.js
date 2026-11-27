@@ -1,70 +1,71 @@
-import os from "node:os";
-import data from "../../../data/pedidos.json";
-
+// Intermediario entre el navegador y la API de Flask (variable API_URL).
 export const dynamic = "force-dynamic";
 
-// Si API_URL esta definida se reenvia a Flask; si no, se usa data/pedidos.json.
-export async function GET(_request, { params }) {
-  const { ruta = [] } = await params;
-  const [recurso, id] = ruta;
+const MAX_BYTES = 1024 * 1024; // la API rechaza más de 1 MB
 
-  const valida =
-    ruta.length === 0 ||
-    (recurso === "health" && ruta.length === 1) ||
-    (recurso === "pedidos" && ruta.length <= 2 && id !== "." && id !== "..");
-  if (!valida) return responder({ error: "Ruta no encontrada" }, 404);
+export const GET = manejar;
+export const POST = manejar;
+export const PATCH = manejar;
+export const DELETE = manejar;
+
+function permitida(metodo, [recurso, id, ...resto]) {
+  if (resto.length || id === "." || id === "..") return false;
+  if (metodo === "GET") return !recurso || (recurso === "health" && !id) || recurso === "pedidos";
+  if (recurso !== "pedidos") return false;
+  if (metodo === "POST") return !id || id === "bulk";
+  return Boolean(id); // PATCH y DELETE
+}
+
+async function manejar(request, { params }) {
+  const { ruta = [] } = await params;
+  if (!permitida(request.method, ruta)) return error("Ruta no encontrada", 404);
 
   const apiUrl = process.env.API_URL?.replace(/\/+$/, "");
-  if (apiUrl) return reenviar(apiUrl, ruta);
+  if (!apiUrl) return error("Falta configurar la variable API_URL", 500);
 
-  const pedidos = data.pedidos ?? [];
+  const escritura = request.method !== "GET";
+  const headers = {};
+  let body;
+  if (escritura) {
+    for (const nombre of ["authorization", "content-type"]) {
+      const valor = request.headers.get(nombre);
+      if (valor) headers[nombre] = valor;
+    }
+    body = await request.arrayBuffer();
+    // margen para el envoltorio multipart del archivo
+    if (body.byteLength > MAX_BYTES + 4096) return error("El contenido supera 1 MB", 413);
+    if (!body.byteLength) body = undefined;
+  }
 
-  if (!recurso) {
-    return responder({
-      servicio: "API de Consulta de Pedidos",
-      rutas_disponibles: ["/api", "/api/health", "/api/pedidos", "/api/pedidos/<id>"],
-    });
-  }
-  if (recurso === "health") {
-    return responder({
-      status: "healthy",
-      version_datos: data.version_id,
-      total_pedidos: pedidos.length,
-    });
-  }
-  if (!id) {
-    return responder({
-      version_datos: data.version_id,
-      ultima_actualizacion: data.ultima_actualizacion,
-      total: pedidos.length,
-      pedidos,
-    });
-  }
-  const pedido = pedidos.find((p) => p.id === id);
-  if (!pedido) return responder({ error: `Pedido ${id} no encontrado` }, 404);
-  return responder({ version_datos: data.version_id, pedido });
-}
-
-async function reenviar(apiUrl, ruta) {
   try {
     const res = await fetch(`${apiUrl}/${ruta.map(encodeURIComponent).join("/")}`, {
+      method: request.method,
+      headers,
+      body,
       cache: "no-store",
-      signal: AbortSignal.timeout(8000),
+      redirect: "manual",
+      signal: AbortSignal.timeout(escritura ? 30000 : 8000),
     });
-    const body = await res.json();
-    return Response.json(body, { status: res.status });
+    const texto = await res.text();
+    let datos = {};
+    if (texto) {
+      try {
+        datos = JSON.parse(texto);
+      } catch {
+        return error(`La API respondió ${res.status} con un formato inesperado`, res.ok ? 502 : res.status);
+      }
+    }
+    return Response.json(datos, { status: res.status === 204 ? 200 : res.status });
   } catch {
-    return Response.json({ error: "No se pudo conectar con la API de pedidos" }, { status: 502 });
+    return error(
+      escritura
+        ? "No hubo respuesta de la API. Actualiza la lista antes de reintentar: el cambio pudo aplicarse."
+        : "No se pudo conectar con la API de pedidos",
+      502
+    );
   }
 }
 
-function responder(payload, status = 200) {
-  return Response.json(
-    {
-      ...payload,
-      instancia_id: process.env.VERCEL_REGION || os.hostname(),
-      timestamp_consulta: new Date().toISOString(),
-    },
-    { status }
-  );
+function error(mensaje, status) {
+  return Response.json({ error: mensaje }, { status });
 }

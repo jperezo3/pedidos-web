@@ -1,7 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Activity, ChevronRight, Database, Package, RefreshCw, Search, Server, TriangleAlert } from "lucide-react"
+import { Activity, ChevronRight, Database, Package, Pencil, Plus, RefreshCw, Search, Server, Trash2, TriangleAlert, Upload } from "lucide-react"
+import { Formulario, type Accion } from "@/components/formulario"
+import { consultar, type Credenciales, type Pedido } from "@/lib/api"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,20 +13,12 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-type Pedido = Record<string, unknown> & { id?: string }
 type Lista = {
   pedidos?: Pedido[]
   total?: number
   version_datos?: string
   ultima_actualizacion?: string
   instancia_id?: string
-}
-
-async function consultar(url: string) {
-  const res = await fetch(url, { cache: "no-store" })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error || `Error ${res.status}`)
-  return body
 }
 
 const titulo = (k: string) => (k.charAt(0).toUpperCase() + k.slice(1)).replaceAll("_", " ")
@@ -65,6 +59,10 @@ export default function Home() {
   const [errorSalud, setErrorSalud] = useState("")
   const [revisando, setRevisando] = useState(true)
   const [verSalud, setVerSalud] = useState(false)
+  const [accion, setAccion] = useState<Accion | null>(null)
+  const [aviso, setAviso] = useState("")
+  // Solo en memoria: se pierden al recargar la página
+  const [credenciales, setCredenciales] = useState<Credenciales>({ usuario: "", clave: "" })
 
   const revisarSalud = useCallback(async () => {
     setRevisando(true)
@@ -103,20 +101,28 @@ export default function Home() {
     setDetalle(null)
     setErrorDetalle("")
     consultar(`/api/pedidos/${encodeURIComponent(abierto)}`)
-      .then((r) => vigente && setDetalle(r.pedido))
+      .then((r) => vigente && setDetalle(r.pedido ?? r))
       .catch((e) => vigente && setErrorDetalle(e.message))
     return () => {
       vigente = false
     }
   }, [abierto])
 
+  function abrirAccion(tipo: "editar" | "eliminar", pedido: Pedido) {
+    setAbierto(null)
+    setAccion({ tipo, pedido })
+  }
+
   const pedidos = lista?.pedidos ?? []
-  const columnas = [...new Set(pedidos.flatMap((p) => Object.keys(p)))]
+  // Flask devuelve las claves en orden alfabético: se fija un orden legible
+  const orden = ["id", "producto", "codigo_lote", "cantidad", "centro_origen", "estado"]
+  const posicion = (c: string) => (orden.indexOf(c) + 1 || orden.length + 1)
+  const columnas = [...new Set(pedidos.flatMap((p) => Object.keys(p)))].sort((a, b) => posicion(a) - posicion(b))
   const q = busqueda.trim().toLowerCase()
   const visibles = pedidos.filter((p) => Object.values(p).some((v) => texto(v).toLowerCase().includes(q)))
 
   const resumen = [
-    { nombre: "Total de pedidos", valor: lista?.total, Icono: Package },
+    { nombre: "Total de pedidos", valor: lista?.total ?? lista?.pedidos?.length, Icono: Package },
     { nombre: "Versión de datos", valor: lista?.version_datos, Icono: Database },
     { nombre: "Instancia", valor: lista?.instancia_id, Icono: Server },
   ]
@@ -151,16 +157,31 @@ export default function Home() {
         <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Todos tus pedidos, al instante</h1>
-            <p className="mt-2 text-muted-foreground">Consulta el detalle de cada pedido desde cualquier dispositivo.</p>
+            <p className="mt-2 text-muted-foreground">Consulta y administra tus pedidos desde cualquier dispositivo.</p>
           </div>
-          <Button onClick={() => {
-              cargar()
-              revisarSalud()
-            }} disabled={cargando} className="w-full sm:w-auto">
-            <RefreshCw className={cargando ? "animate-spin" : ""} />
-            Actualizar
-          </Button>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button className="col-span-2" onClick={() => setAccion({ tipo: "crear" })}>
+              <Plus /> Nuevo pedido
+            </Button>
+            <Button variant="outline" onClick={() => setAccion({ tipo: "cargar" })}>
+              <Upload /> Cargar
+            </Button>
+            <Button
+              variant="outline"
+              disabled={cargando}
+              onClick={() => {
+                cargar()
+                revisarSalud()
+              }}
+            >
+              <RefreshCw className={cargando ? "animate-spin" : ""} /> Actualizar
+            </Button>
+          </div>
         </section>
+
+        {aviso && (
+          <p role="status" className="rounded-lg border bg-accent px-4 py-3 text-sm">{aviso}</p>
+        )}
 
         {error && (
           <Alert variant="destructive">
@@ -237,9 +258,9 @@ export default function Home() {
                   <li key={p.id ?? i}>
                     <button className="flex w-full items-center gap-3 p-4 text-left active:bg-muted" onClick={() => setAbierto(p.id ?? null)}>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">{texto(p.cliente ?? p.id)}</div>
+                        <div className="truncate font-medium">{texto(p.producto ?? p.id)}</div>
                         <div className="truncate text-sm text-muted-foreground">
-                          {[p.id, p.producto].filter(Boolean).map(texto).join(" · ")}
+                          {[p.id, p.centro_origen].filter(Boolean).map(texto).join(" · ")}
                         </div>
                       </div>
                       {p.estado != null && <Valor campo="estado" valor={p.estado} />}
@@ -252,7 +273,7 @@ export default function Home() {
           )}
         </Card>
 
-        {lista && (
+        {lista?.ultima_actualizacion && (
           <footer className="text-center text-sm text-muted-foreground">
             Última actualización: {fecha(lista.ultima_actualizacion)}
           </footer>
@@ -300,7 +321,7 @@ export default function Home() {
               <Skeleton className="h-32" />
             ) : (
               <dl className="divide-y">
-                {Object.entries(detalle).map(([k, v]) => (
+                {Object.entries(detalle).sort(([a], [b]) => columnas.indexOf(a) - columnas.indexOf(b)).map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-4 py-3 text-sm">
                     <dt className="text-muted-foreground">{titulo(k)}</dt>
                     <dd className="min-w-0 text-right font-medium break-words"><Valor campo={k} valor={v} /></dd>
@@ -308,9 +329,34 @@ export default function Home() {
                 ))}
               </dl>
             )}
+            {detalle && (
+              <div className="mt-6 grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={() => abrirAccion("editar", detalle)}>
+                  <Pencil /> Editar
+                </Button>
+                <Button variant="destructive" onClick={() => abrirAccion("eliminar", detalle)}>
+                  <Trash2 /> Eliminar
+                </Button>
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>
+
+      {accion && (
+        <Formulario
+          accion={accion}
+          credenciales={credenciales}
+          onCredenciales={setCredenciales}
+          onCerrar={() => setAccion(null)}
+          onListo={(mensaje) => {
+            setAccion(null)
+            setAviso(mensaje)
+            cargar()
+            revisarSalud()
+          }}
+        />
+      )}
     </div>
   )
 }
