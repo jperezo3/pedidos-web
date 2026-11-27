@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Activity, ChevronRight, Database, Package, Pencil, Plus, RefreshCw, Search, Server, Trash2, TriangleAlert, Upload } from "lucide-react"
+import { Activity, ChevronLeft, ChevronRight, Database, Package, Pencil, Plus, RefreshCw, Search, Server, Trash2, TriangleAlert, Upload } from "lucide-react"
 import { Formulario, type Accion } from "@/components/formulario"
 import { consultar, type Credenciales, type Pedido } from "@/lib/api"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+const POR_PAGINA = 10
 
 type Lista = {
   pedidos?: Pedido[]
@@ -51,6 +53,7 @@ export default function Home() {
   const [error, setError] = useState("")
   const [cargando, setCargando] = useState(true)
   const [busqueda, setBusqueda] = useState("")
+  const [pagina, setPagina] = useState(1)
   const [abierto, setAbierto] = useState<string | null>(null)
   const [detalle, setDetalle] = useState<Pedido | null>(null)
   const [errorDetalle, setErrorDetalle] = useState("")
@@ -120,6 +123,11 @@ export default function Home() {
   const columnas = [...new Set(pedidos.flatMap((p) => Object.keys(p)))].sort((a, b) => posicion(a) - posicion(b))
   const q = busqueda.trim().toLowerCase()
   const visibles = pedidos.filter((p) => Object.values(p).some((v) => texto(v).toLowerCase().includes(q)))
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA))
+  // Si se eliminan pedidos, no quedarse en una página que ya no existe
+  const actual = Math.min(pagina, totalPaginas)
+  const inicio = (actual - 1) * POR_PAGINA
+  const enPagina = visibles.slice(inicio, inicio + POR_PAGINA)
 
   const resumen = [
     { nombre: "Total de pedidos", valor: lista?.total ?? lista?.pedidos?.length, Icono: Package },
@@ -210,7 +218,10 @@ export default function Home() {
               <Input
                 type="search"
                 value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
+                onChange={(e) => {
+                  setBusqueda(e.target.value)
+                  setPagina(1)
+                }}
                 placeholder="Buscar pedido…"
                 aria-label="Buscar pedido"
                 className="pl-9"
@@ -237,7 +248,7 @@ export default function Home() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibles.map((p, i) => (
+                    {enPagina.map((p, i) => (
                       <TableRow key={p.id ?? i}>
                         {columnas.map((c) => (
                           <TableCell key={c} className="px-4 py-3"><Valor campo={c} valor={p[c]} /></TableCell>
@@ -254,7 +265,7 @@ export default function Home() {
               </div>
 
               <ul className="divide-y md:hidden">
-                {visibles.map((p, i) => (
+                {enPagina.map((p, i) => (
                   <li key={p.id ?? i}>
                     <button className="flex w-full items-center gap-3 p-4 text-left active:bg-muted" onClick={() => setAbierto(p.id ?? null)}>
                       <div className="min-w-0 flex-1">
@@ -269,6 +280,23 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+
+              <nav aria-label="Paginación" className="flex flex-col items-center gap-3 border-t p-4 sm:flex-row sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  {inicio + 1}–{inicio + enPagina.length} de {visibles.length}
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button variant="outline" size="sm" disabled={actual === 1} onClick={() => setPagina(actual - 1)}>
+                    <ChevronLeft /> Anterior
+                  </Button>
+                  <span className="text-sm whitespace-nowrap">
+                    {actual} / {totalPaginas}
+                  </span>
+                  <Button variant="outline" size="sm" disabled={actual === totalPaginas} onClick={() => setPagina(actual + 1)}>
+                    Siguiente <ChevronRight />
+                  </Button>
+                </div>
+              </nav>
             </>
           )}
         </Card>
